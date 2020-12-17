@@ -16,7 +16,7 @@ static INIT: Once = Once::new();
 pub fn setup() {
     INIT.call_once(|| {
         CombinedLogger::init(vec![TermLogger::new(
-            LevelFilter::Info,
+            LevelFilter::Warn,
             Config::default(),
             TerminalMode::Mixed,
         )
@@ -147,19 +147,20 @@ fn run_blargg_test(rom_file: String, golden_file: String) -> IronNesResult<()> {
 //    ])
 //}
 
-#[test]
-fn cpu_blargg_01_basics() -> IronNesResult<()> {
-    run_blargg_test(
-        get_filename(&[
-            env!("CARGO_MANIFEST_DIR"),
-            "tests/blargg/instr_test_v5/rom_singles/01-basics.nes",
-        ]),
-        get_filename(&[
-            env!("CARGO_MANIFEST_DIR"),
-            "tests/blargg/instr_test_v5/goldens/01-basics.log",
-        ]),
-    )
-}
+// TODO
+//#[test]
+//fn cpu_blargg_01_basics() -> IronNesResult<()> {
+//    run_blargg_test(
+//        get_filename(&[
+//            env!("CARGO_MANIFEST_DIR"),
+//            "tests/blargg/instr_test_v5/rom_singles/01-basics.nes",
+//        ]),
+//        get_filename(&[
+//            env!("CARGO_MANIFEST_DIR"),
+//            "tests/blargg/instr_test_v5/goldens/01-basics.log",
+//        ]),
+//    )
+//}
 
 //#[test]
 //fn cpu_blargg_02_implied() -> IronNesResult<()> {
