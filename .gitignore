@@ -1,0 +1,9 @@
+/target
+
+*.nes
+
+roms/
+
+# vim
+*.swp
+*.vim

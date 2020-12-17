@@ -1,0 +1,22 @@
+name: IronNES Emulator
+about: A nes emulator 
+args:
+    - rom:
+        short: r
+        long: rom 
+        help: Which ROM file to load
+        takes_value: true
+        default_value: "tests/nestest/nestest.nes"
+    - log:
+        short: l
+        long: log
+        help: Save log to file
+        takes_value: true
+    - debug:
+        short: d
+        multiple: false 
+        help: Set if you want to run the app in interactive debug mode
+    - v:
+        short: v
+        multiple: true
+        help: Sets the level of verbosity
