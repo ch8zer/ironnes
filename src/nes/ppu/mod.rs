@@ -1,3 +1,5 @@
+pub mod registers;
+
 pub struct Frame(pub Vec<u8>);
 
 impl Frame {

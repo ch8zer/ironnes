@@ -67,10 +67,7 @@ impl Registers {
     }
 
     pub fn set_flag(&mut self, f: Flags, s: bool) {
-        match s {
-            true => self.flags.set(f as u8),
-            _ => self.flags.clear(f as u8),
-        }
+        self.flags.set(f as u8, s as u8)
     }
 
     pub fn clear_status(&mut self) {
