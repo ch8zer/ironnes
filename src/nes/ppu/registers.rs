@@ -9,10 +9,8 @@ pub struct Registers {
     ppumask: BiasedBitSet,
     ppustatus: BiasedBitSet,
     oamaddr: u8,
-    oamdata: u8,
     ppuscroll: PPUScroll,
-    ppuaddr: BiasedBitSet,
-    ppudata: BiasedBitSet,
+    ppuaddr: usize,
 
     /// Proper ppu emulation requires that
     /// we have a PPU latch for some registers.
@@ -29,33 +27,31 @@ impl Registers {
     const OAMADDR_ADDR: usize = 0x2003;
     const OAMDATA_ADDR: usize = 0x2004;
     const PPUSCROLL_ADDR: usize = 0x2005;
+    const PPUADDR_ADDR: usize = 0x2006;
+    const PPUDATA_ADDR: usize = 0x2007;
 
     pub fn new() -> Self {
         let mut ppuctrl = BiasedBitSet::default();
         ppuctrl.bias(6, 0); // Grounded on a NES
         let ppumask = BiasedBitSet::default();
-        let ppustatus = BiasedBitSet::default();
-        for i in 0..6 {
+        let mut ppustatus = BiasedBitSet::default();
+        for i in 0..5 {
             // Since these values are don't cares,
             // zero them out so that reads
             // are easy to implement
-            ppuctrl.bias(i, 0);
+            ppustatus.bias(i, 0);
         }
-        let oamdata = 0u8;
         let oamaddr = 0u8;
         let ppuscroll = PPUScroll::default();
-        let ppuaddr = BiasedBitSet::default();
-        let ppudata = BiasedBitSet::default();
+        let ppuaddr = 0;
 
         Self {
             ppuctrl,
             ppumask,
             ppustatus,
-            oamdata,
             oamaddr,
             ppuscroll,
             ppuaddr,
-            ppudata,
             latch: 0,
         }
     }
@@ -63,8 +59,7 @@ impl Registers {
     pub fn reset(&mut self) {
         self.ppuctrl.store(0);
         self.ppumask.store(0);
-        self.ppudata.store(0);
-        // dont touch others
+        // TODO touch others
     }
 
     pub fn set_vblank(&mut self, is_enabled: bool) {
@@ -72,6 +67,13 @@ impl Registers {
     }
 
     // TODO effective ppu reg read methods
+
+    fn get_vram_inc(&self) -> usize {
+        match self.ppuctrl.get(2) {
+            true => 32,
+            false => 1,
+        }
+    }
 
     pub fn get_ppuscroll(&self) -> PPUScroll {
         self.ppuscroll
@@ -105,15 +107,14 @@ impl MemoryMapped for Registers {
                 v
             }
             Self::OAMADDR_ADDR => self.oamaddr,
-            Self::OAMDATA_ADDR => self.oamdata,
-            Self::PPUSCROLL_ADDR => {
-                return Err(IronNesError::MemoryError(format!(
-                    "ppuscroll is write only",
-                )))
+            Self::PPUDATA_ADDR => {
+                self.ppuaddr = self.ppuaddr.wrapping_add(self.get_vram_inc());
+                warn!("Must implement load from ppudata");
+                0
             }
             _ => {
                 return Err(IronNesError::MemoryError(format!(
-                    "Address not addressable: {:04x}",
+                    "Address not readable: {:04x}",
                     addr
                 )))
             }
@@ -126,17 +127,25 @@ impl MemoryMapped for Registers {
         match addr {
             Self::PPUCTRL_ADDR => Ok(self.ppuctrl.store(data)),
             Self::PPUMASK_ADDR => Ok(self.ppumask.store(data)),
-            Self::PPUSTATUS_ADDR => {
-                Err(IronNesError::MemoryError(format!("PPUSTATUS is read only")))
-            }
             Self::OAMADDR_ADDR => Ok(self.oamaddr = data),
             Self::OAMDATA_ADDR => {
-                self.oamaddr = self.oamaddr.wrapping_add(1);
-                Ok(self.oamdata = data)
+                // Writing to oamdata increments this register
+                Ok(self.oamaddr = self.oamaddr.wrapping_add(1))
+                // TODO need to actually write to oamdata
             }
             Self::PPUSCROLL_ADDR => Ok(self.ppuscroll.push(data)),
+            Self::PPUADDR_ADDR => {
+                let v = self.ppuaddr << 8 | (data as usize);
+                Ok(self.ppuaddr = v & 0xffff)
+            }
+            Self::PPUDATA_ADDR => {
+                self.ppuaddr = self.ppuaddr.wrapping_add(self.get_vram_inc());
+                warn!("Must implement store to ppudata");
+                Ok(())
+            }
+            // TODO accessing ppudata increments ppuaddr by offset in ppustatus
             _ => Err(IronNesError::MemoryError(format!(
-                "Address not addressable: {:04x}",
+                "Address not writable: {:04x}",
                 addr
             ))),
         }
@@ -195,6 +204,31 @@ mod tests {
         let scroll = r.get_ppuscroll();
         assert_eq!(0x2, scroll.x);
         assert_eq!(0x7, scroll.y);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bus_ppuaddr() -> IronNesResult<()> {
+        let mut r = Registers::new();
+        r.store(Registers::PPUADDR_ADDR, 0xbe);
+        r.store(Registers::PPUADDR_ADDR, 0x2f);
+        assert_eq!(0xbe2f, r.ppuaddr);
+        r.store(Registers::PPUADDR_ADDR, 0x31);
+        assert_eq!(0x2f31, r.ppuaddr);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bus_ppudata() -> IronNesResult<()> {
+        let mut r = Registers::new();
+        r.ppuaddr = 0xbeef;
+        r.load(Registers::PPUDATA_ADDR)?;
+        assert_eq!(0xbeef + 1, r.ppuaddr);
+
+        r.ppuctrl.store(0xff);
+        r.ppuaddr = 0xbeef;
+        r.store(Registers::PPUDATA_ADDR, 0)?;
+        assert_eq!(0xbeef + 32, r.ppuaddr);
         Ok(())
     }
 }
