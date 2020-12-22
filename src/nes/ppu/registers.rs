@@ -8,9 +8,9 @@ pub struct Registers {
     ppuctrl: BiasedBitSet,
     ppumask: BiasedBitSet,
     ppustatus: BiasedBitSet,
-    oamaddr: BiasedBitSet,
-    oamdata: BiasedBitSet,
-    ppuscroll: BiasedBitSet,
+    oamaddr: u8,
+    oamdata: u8,
+    ppuscroll: PPUScroll,
     ppuaddr: BiasedBitSet,
     ppudata: BiasedBitSet,
 
@@ -28,6 +28,7 @@ impl Registers {
     const PPUSTATUS_ADDR: usize = 0x2002;
     const OAMADDR_ADDR: usize = 0x2003;
     const OAMDATA_ADDR: usize = 0x2004;
+    const PPUSCROLL_ADDR: usize = 0x2005;
 
     pub fn new() -> Self {
         let mut ppuctrl = BiasedBitSet::default();
@@ -40,9 +41,9 @@ impl Registers {
             // are easy to implement
             ppuctrl.bias(i, 0);
         }
-        let oamdata = BiasedBitSet::default();
-        let oamaddr = BiasedBitSet::default();
-        let ppuscroll = BiasedBitSet::default();
+        let oamdata = 0u8;
+        let oamaddr = 0u8;
+        let ppuscroll = PPUScroll::default();
         let ppuaddr = BiasedBitSet::default();
         let ppudata = BiasedBitSet::default();
 
@@ -62,7 +63,6 @@ impl Registers {
     pub fn reset(&mut self) {
         self.ppuctrl.store(0);
         self.ppumask.store(0);
-        self.ppuscroll.store(0);
         self.ppudata.store(0);
         // dont touch others
     }
@@ -72,6 +72,25 @@ impl Registers {
     }
 
     // TODO effective ppu reg read methods
+
+    pub fn get_ppuscroll(&self) -> PPUScroll {
+        self.ppuscroll
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct PPUScroll {
+    x: u8,
+    y: u8,
+}
+
+impl PPUScroll {
+    // When values are pushed into the ppuscrol reg, first it writes to
+    // x then y. To simulate this, just keep pushing in values
+    fn push(&mut self, v: u8) {
+        self.x = self.y;
+        self.y = v;
+    }
 }
 
 impl MemoryMapped for Registers {
@@ -85,8 +104,13 @@ impl MemoryMapped for Registers {
                 self.ppustatus.set(7, 0);
                 v
             }
-            Self::OAMADDR_ADDR => self.oamaddr.cast(),
-            Self::OAMDATA_ADDR => self.oamdata.cast(),
+            Self::OAMADDR_ADDR => self.oamaddr,
+            Self::OAMDATA_ADDR => self.oamdata,
+            Self::PPUSCROLL_ADDR => {
+                return Err(IronNesError::MemoryError(format!(
+                    "ppuscroll is write only",
+                )))
+            }
             _ => {
                 return Err(IronNesError::MemoryError(format!(
                     "Address not addressable: {:04x}",
@@ -105,11 +129,12 @@ impl MemoryMapped for Registers {
             Self::PPUSTATUS_ADDR => {
                 Err(IronNesError::MemoryError(format!("PPUSTATUS is read only")))
             }
-            Self::OAMADDR_ADDR => Ok(self.oamaddr.store(data)),
+            Self::OAMADDR_ADDR => Ok(self.oamaddr = data),
             Self::OAMDATA_ADDR => {
-                self.oamaddr.store(self.oamaddr.cast().wrapping_add(1));
-                Ok(self.oamdata.store(data))
+                self.oamaddr = self.oamaddr.wrapping_add(1);
+                Ok(self.oamdata = data)
             }
+            Self::PPUSCROLL_ADDR => Ok(self.ppuscroll.push(data)),
             _ => Err(IronNesError::MemoryError(format!(
                 "Address not addressable: {:04x}",
                 addr
@@ -155,6 +180,21 @@ mod tests {
             r.load(Registers::OAMADDR_ADDR)?,
             "Writing oamdata should +1 oamaddr"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_bus_ppuscroll() -> IronNesResult<()> {
+        let mut r = Registers::new();
+        r.store(Registers::PPUSCROLL_ADDR, 0xb);
+        r.store(Registers::PPUSCROLL_ADDR, 0x2);
+        let scroll = r.get_ppuscroll();
+        assert_eq!(0xb, scroll.x);
+        assert_eq!(0x2, scroll.y);
+        r.store(Registers::PPUSCROLL_ADDR, 0x7);
+        let scroll = r.get_ppuscroll();
+        assert_eq!(0x2, scroll.x);
+        assert_eq!(0x7, scroll.y);
         Ok(())
     }
 }
