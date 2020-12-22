@@ -26,6 +26,8 @@ impl Registers {
     const PPUCTRL_ADDR: usize = 0x2000;
     const PPUMASK_ADDR: usize = 0x2001;
     const PPUSTATUS_ADDR: usize = 0x2002;
+    const OAMADDR_ADDR: usize = 0x2003;
+    const OAMDATA_ADDR: usize = 0x2004;
 
     pub fn new() -> Self {
         let mut ppuctrl = BiasedBitSet::default();
@@ -78,11 +80,13 @@ impl MemoryMapped for Registers {
             Self::PPUCTRL_ADDR => self.ppuctrl.cast(),
             Self::PPUMASK_ADDR => self.ppumask.cast(),
             Self::PPUSTATUS_ADDR => {
-                let v = self.ppumask.cast() | (self.latch & 0x1f);
+                let v = self.ppustatus.cast() | (self.latch & 0x1f);
                 // Subsequent reads clear bit 7
                 self.ppustatus.set(7, 0);
                 v
             }
+            Self::OAMADDR_ADDR => self.oamaddr.cast(),
+            Self::OAMDATA_ADDR => self.oamdata.cast(),
             _ => {
                 return Err(IronNesError::MemoryError(format!(
                     "Address not addressable: {:04x}",
@@ -99,7 +103,12 @@ impl MemoryMapped for Registers {
             Self::PPUCTRL_ADDR => Ok(self.ppuctrl.store(data)),
             Self::PPUMASK_ADDR => Ok(self.ppumask.store(data)),
             Self::PPUSTATUS_ADDR => {
-                Err(IronNesError::MemoryError(format!("PPUSTATUS is readonly")))
+                Err(IronNesError::MemoryError(format!("PPUSTATUS is read only")))
+            }
+            Self::OAMADDR_ADDR => Ok(self.oamaddr.store(data)),
+            Self::OAMDATA_ADDR => {
+                self.oamaddr.store(self.oamaddr.cast().wrapping_add(1));
+                Ok(self.oamdata.store(data))
             }
             _ => Err(IronNesError::MemoryError(format!(
                 "Address not addressable: {:04x}",
@@ -131,6 +140,20 @@ mod tests {
             0b0111_1010u8,
             r.load(Registers::PPUSTATUS_ADDR)?,
             "Subsequent reads should clear bit 7"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_bus_ppu_oamdata() -> IronNesResult<()> {
+        let mut r = Registers::new();
+        r.store(Registers::OAMADDR_ADDR, 0xbe);
+        assert_eq!(0xbe, r.load(Registers::OAMADDR_ADDR)?);
+        r.store(Registers::OAMDATA_ADDR, 0);
+        assert_eq!(
+            0xbf,
+            r.load(Registers::OAMADDR_ADDR)?,
+            "Writing oamdata should +1 oamaddr"
         );
         Ok(())
     }
