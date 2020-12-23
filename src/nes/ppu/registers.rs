@@ -2,7 +2,7 @@ use crate::bitset::BiasedBitSet;
 use crate::error::*;
 use log::*;
 
-use crate::nes::bus::MemoryMapped;
+use crate::nes::bus::memory_mapped::MemoryMapped;
 
 pub struct Registers {
     ppuctrl: BiasedBitSet,
@@ -149,6 +149,14 @@ impl MemoryMapped for Registers {
                 addr
             ))),
         }
+    }
+
+    fn get_ref<'a>(&'a self) -> Option<&'a [u8]> {
+        None
+    }
+
+    fn get_mut_ref<'a>(&'a mut self) -> Option<&'a mut [u8]> {
+        None
     }
 }
 

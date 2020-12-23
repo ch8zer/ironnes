@@ -44,8 +44,8 @@ fn run_test(
 ) -> IronNesResult<IronNes> {
     setup();
 
-    let mut nes = IronNes::new();
-    nes.boot(&rom)?;
+    let mut nes = IronNes::new(&rom);
+    nes.reset();
 
     if let Some(x) = load {
         nes.jsr(x)?;

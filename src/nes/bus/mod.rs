@@ -1,19 +1,14 @@
+pub mod memory_mapped;
+
 use crate::error::*;
+use memory_mapped::{MemMappedDevice, MemoryMappedRam};
 
 use log::*;
 
 /**
- * Any device that is memory mapped (i.e. attached to the bus)
- * This will include: CPU memory, PPU memory & registers,
- * cartridge, controller, and mapper circuits.
+ * The bus holds all memory mapped devices for all computational units.
  */
-pub trait MemoryMapped {
-    fn load(&mut self, addr: usize) -> IronNesResult<u8>;
-    fn store(&mut self, addr: usize, data: u8) -> IronNesResult<()>;
-}
-
-pub type MemMappedDevice = Box<dyn MemoryMapped>;
-
+#[allow(dead_code)] // TODO remove
 pub struct Bus {
     cpu_zeropage: MemMappedDevice,
     cpu_oam_dma_reg: MemMappedDevice,
@@ -32,6 +27,7 @@ pub struct Bus {
     cartridge_mapper: Option<MemMappedDevice>,
 }
 
+#[allow(dead_code)] // TODO remove
 impl Bus {
     const CPU_ZEROPAGE_SIZE: usize = 0x800;
     const OAM_SIZE: usize = 256;
@@ -80,10 +76,7 @@ impl Bus {
      * of code I need to write. Is this the right thing to do? Probably not, but
      * it keeps the file short.
      */
-    fn cpu_map<'a>(
-        &'a mut self,
-        addr: usize,
-    ) -> IronNesResult<(usize, &'a mut Box<dyn MemoryMapped>)> {
+    fn cpu_map<'a>(&'a mut self, addr: usize) -> IronNesResult<(usize, &'a mut MemMappedDevice)> {
         match addr {
             0x0000..=0x1fff => Ok((addr % Self::CPU_ZEROPAGE_SIZE, &mut self.cpu_zeropage)),
             0x2000..=0x3fff => Ok((addr % 8, &mut self.ppu_reg)),
@@ -102,7 +95,28 @@ impl Bus {
                 Ok((addr - self.cartridge_rom_offset, &mut self.cartridge_rom))
             }
             _ => Err(IronNesError::MemoryError(format!(
-                "Memory access to unmapped vrom {:04x}",
+                "Memory access to unmapped cpu addr {:04x}",
+                addr
+            ))),
+        }
+    }
+
+    /**
+     * Given an address we are interested in, map that to a tuple
+     * of (addr2, MemMappedDevice) where addr2 is the translated address
+     * that your MemMappedDevice understands
+     *
+     * FIXME the values are hardcoded here ONCE to cut down on the # of lines
+     * of code I need to write. Is this the right thing to do? Probably not, but
+     * it keeps the file short.
+     */
+    fn ppu_map<'a>(&'a mut self, addr: usize) -> IronNesResult<(usize, &'a mut MemMappedDevice)> {
+        match addr {
+            0x0000..=0x1fff => Ok((addr, &mut self.cartridge_vram)),
+            0x2000..=0x3eff => Ok((addr & 0x0fff, &mut self.ppu_reg)),
+            0x3f00..=0x3fff => Ok((addr & 0x1f, &mut self.ppu_palette_ram)),
+            _ => Err(IronNesError::MemoryError(format!(
+                "Memory access to unmapped ppu addr {:04x}",
                 addr
             ))),
         }
@@ -120,48 +134,12 @@ impl Bus {
         mem.store(a, v)
     }
 
-    fn set_mapper(&mut self, mapper: Option<Box<dyn MemoryMapped>>) {
+    fn ppu_get_reg<'a>(&'a mut self) -> &'a mut MemMappedDevice {
+        &mut self.ppu_reg
+    }
+
+    fn set_mapper(&mut self, mapper: Option<MemMappedDevice>) {
         self.cartridge_mapper = mapper
-    }
-}
-
-/**
- * The simplest possible data type, just store an array
- * TODO find a way to make this memory backed via array
- */
-struct MemoryMappedRam(Vec<u8>);
-
-impl MemoryMappedRam {
-    pub fn new(size: usize) -> Self {
-        Self { 0: vec![0; size] }
-    }
-
-    pub fn from_vec(vals: Vec<u8>) -> Self {
-        Self { 0: vals }
-    }
-}
-
-impl MemoryMapped for MemoryMappedRam {
-    fn load(&mut self, addr: usize) -> IronNesResult<u8> {
-        if addr > self.0.len() {
-            return Err(IronNesError::MemoryError(format!(
-                "load out of range ${:04x}",
-                addr
-            )));
-        }
-
-        Ok(self.0[addr])
-    }
-
-    fn store(&mut self, addr: usize, data: u8) -> IronNesResult<()> {
-        if addr > self.0.len() {
-            return Err(IronNesError::MemoryError(format!(
-                "store out of range ${:04x}",
-                addr
-            )));
-        }
-
-        Ok(self.0[addr] = data)
     }
 }
 
@@ -201,43 +179,32 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn test_bus_ppu_reg() {
+        let mut bus = make_bus();
+
+        // Write to registers # 3,4
+        bus.cpu_store(0x2003, 1).unwrap();
+        bus.cpu_store(0x3404 + 8, 2).unwrap();
+
+        // Mirroring of indicies
+        let x = bus.cpu_load(0x2003 + 0x1168).unwrap();
+        assert_eq!(1, x);
+        let x = bus.cpu_load(0x2004).unwrap();
+        assert_eq!(2, x);
+
+        // PPU shared with cpu
+        {
+            let mut reg = bus.ppu_get_reg();
+            let x = reg.load(3).unwrap();
+            assert_eq!(1, x);
+            let x = reg.load(4).unwrap();
+            assert_eq!(2, x);
+            let x = reg.store(3, 3).unwrap();
+        }
+
+        let x = bus.cpu_load(0x2003 + 0x1008).unwrap();
+        assert_eq!(3, x);
+    }
 }
-//fn main() {
-//    let cpu = Box::new(IODevice {
-//        0: [0xfe, 0xbe, 0x21, 0x43],
-//    });
-//    let ppu = Box::new(IODevice {
-//        0: [0xfe, 0xbe, 0x21, 0x43],
-//    });
-//    let mut b = Bus {
-//        cpu,
-//        ppu,
-//        mapper: None,
-//    };
-//
-//    // Various store methods
-//    println!("{}", b);
-//    b.store(2, 0xff);
-//    let (a, m) = b.map(0x2000);
-//    m.store(a + 1, 0xff);
-//    println!("{}", b);
-//
-//    // OAM copy
-//    b.copy_out(0x2000, 0x2, 2);
-//    println!("{}", b);
-//
-//    // Mapper
-//    println!("{}", b);
-//
-//    b.set_mapper(Some(Box::new(IODevice { 0: [0, 0, 0, 0] })));
-//
-//    println!("{}", b);
-//    {
-//        let (a, m) = b.map(0x50);
-//        m.store(a, 0x11);
-//    }
-//    println!("{}", b);
-//
-//    b.set_mapper(None);
-//    println!("{}", b);
-//}

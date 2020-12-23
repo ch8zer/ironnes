@@ -8,28 +8,30 @@ use log::*;
 use crate::error::*;
 
 pub struct IronNes {
+    bus: bus::Bus,
     cpu: cpu::Cpu,
-    cartridge: cartridge::Cartridge,
     pub mem: memory::Memory,
 }
 
 impl IronNes {
-    pub fn new() -> Self {
+    pub fn new(cartridge: &str) -> Self {
         info!("Starting IronNES");
-        Self {
-            cpu: cpu::Cpu::new(),
-            cartridge: cartridge::Cartridge::default(),
-            mem: memory::Memory::new(),
-        }
-    }
 
-    pub fn boot(&mut self, cartridge: &str) -> IronNesResult<()> {
         info!("Loading cartridge {}", cartridge);
-        let (cartridge, prog_rom, ppu_rom) = cartridge::Cartridge::load(cartridge)?;
-        self.cartridge = cartridge;
-        self.mem.load_rom(&prog_rom)?;
+        let (cartridge, prog_rom, ppu_rom) = cartridge::Cartridge::load(cartridge).unwrap();
 
-        self.reset()
+        let mut mem = memory::Memory::new();
+        mem.load_rom(&prog_rom).unwrap();
+
+        let ppu = ppu::Ppu::new(&cartridge);
+        let ppu_nametables = ppu.alloc_nametables();
+        let ppu_reg = Box::new(ppu::registers::Registers::new());
+
+        Self {
+            bus: bus::Bus::new(ppu_nametables, ppu_reg, prog_rom, ppu_rom),
+            cpu: cpu::Cpu::new(),
+            mem,
+        }
     }
 
     pub fn reset(&mut self) -> IronNesResult<()> {

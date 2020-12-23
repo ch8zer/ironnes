@@ -37,8 +37,8 @@ fn main() -> IronNesResult<()> {
 
     CombinedLogger::init(loggers).unwrap();
 
-    let mut nes = IronNes::new();
-    nes.boot(rom)?;
+    let mut nes = IronNes::new(rom);
+    nes.reset()?;
 
     match is_debug {
         true => {

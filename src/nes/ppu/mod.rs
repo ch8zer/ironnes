@@ -1,84 +1,91 @@
 pub mod registers;
 
-pub struct Frame(pub Vec<u8>);
+use crate::nes::bus::memory_mapped::*;
+use crate::nes::cartridge::Cartridge;
 
-impl Frame {
-    const WIDTH: usize = 256 * 2;
-    const HEIGHT: usize = 240;
+//pub struct Frame(pub Vec<u8>);
+//
+//impl Frame {
+//    const WIDTH: usize = 256 * 2;
+//    const HEIGHT: usize = 240;
+//
+//    fn new() -> Self {
+//        Frame {
+//            0: vec![0; Self::WIDTH * Self::HEIGHT * 3],
+//        }
+//    }
+//
+//    fn set_pixel(&mut self, x: usize, y: usize, rgb: (u8, u8, u8)) {
+//        let offset = y * Self::WIDTH + x;
+//        let offset = offset * 3;
+//
+//        self.0[offset] = rgb.0;
+//        self.0[offset + 1] = rgb.1;
+//        self.0[offset + 2] = rgb.2;
+//    }
+//}
 
-    fn new() -> Self {
-        Frame {
-            0: vec![0; Self::WIDTH * Self::HEIGHT * 3],
-        }
-    }
-
-    fn set_pixel(&mut self, x: usize, y: usize, rgb: (u8, u8, u8)) {
-        let offset = y * Self::WIDTH + x;
-        let offset = offset * 3;
-
-        self.0[offset] = rgb.0;
-        self.0[offset + 1] = rgb.1;
-        self.0[offset + 2] = rgb.2;
-    }
-}
-
-pub struct Ppu {
-    vram: Vec<u8>,
-}
+pub struct Ppu;
 
 impl Ppu {
-    pub fn new(vram: Vec<u8>) -> Self {
-        Self { vram }
+    pub fn new(_cartridge: &Cartridge) -> Self {
+        Self {}
     }
 
-    pub fn render(&self) -> Frame {
-        let mut frame = Frame::new();
-
-        let num_rows = Frame::WIDTH / 8 / 2;
-        let num_cols = Frame::HEIGHT / 8;
-
-        for i in 0..256 {
-            let frame_x = i % num_rows;
-            let frame_y = i / num_rows;
-            self.load_tile(&mut frame, 8 * frame_x, 8 * frame_y, 0, i);
-        }
-
-        frame
+    pub fn alloc_nametables(&self) -> MemMappedDevice {
+        // TODO this is based on mirroring, just allocate a
+        // full and empty array for now
+        Box::new(MemoryMappedRam::new(0x400 * 4))
     }
 
-    fn load_tile(
-        &self,
-        frame: &mut Frame,
-        frame_x: usize,
-        frame_y: usize,
-        bank: usize,
-        n_tile: usize,
-    ) {
-        let bank = bank * 1000usize;
+    //pub fn render(&self) -> Frame {
+    //    let mut frame = Frame::new();
 
-        let tile = &self.vram[(bank + n_tile * 16)..(bank + n_tile * 16 + 16)];
+    //    let num_rows = Frame::WIDTH / 8 / 2;
+    //    let num_cols = Frame::HEIGHT / 8;
 
-        for y in 0..=7 {
-            let mut upper = tile[y];
-            let mut lower = tile[y + 8];
+    //    for i in 0..256 {
+    //        let frame_x = i % num_rows;
+    //        let frame_y = i / num_rows;
+    //        self.load_tile(&mut frame, 8 * frame_x, 8 * frame_y, 0, i);
+    //    }
 
-            for x in (0..=7).rev() {
-                let value = ((1 & upper) << 1) | (1 & lower);
-                upper = upper >> 1;
-                lower = lower >> 1;
+    //    frame
+    //}
 
-                let rgb = match value {
-                    0 => PALLETE[0x01],
-                    1 => PALLETE[0x23],
-                    2 => PALLETE[0x27],
-                    3 => PALLETE[0x30],
-                    _ => panic!("Impossible palette {}", value),
-                };
+    //fn load_tile(
+    //    &self,
+    //    frame: &mut Frame,
+    //    frame_x: usize,
+    //    frame_y: usize,
+    //    bank: usize,
+    //    n_tile: usize,
+    //) {
+    //    let bank = bank * 1000usize;
 
-                frame.set_pixel(frame_x + x, frame_y + y, rgb);
-            }
-        }
-    }
+    //    let tile = &self.vram[(bank + n_tile * 16)..(bank + n_tile * 16 + 16)];
+
+    //    for y in 0..=7 {
+    //        let mut upper = tile[y];
+    //        let mut lower = tile[y + 8];
+
+    //        for x in (0..=7).rev() {
+    //            let value = ((1 & upper) << 1) | (1 & lower);
+    //            upper = upper >> 1;
+    //            lower = lower >> 1;
+
+    //            let rgb = match value {
+    //                0 => PALLETE[0x01],
+    //                1 => PALLETE[0x23],
+    //                2 => PALLETE[0x27],
+    //                3 => PALLETE[0x30],
+    //                _ => panic!("Impossible palette {}", value),
+    //            };
+
+    //            frame.set_pixel(frame_x + x, frame_y + y, rgb);
+    //        }
+    //    }
+    //}
 }
 
 #[rustfmt::skip]
