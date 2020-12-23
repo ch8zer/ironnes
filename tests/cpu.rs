@@ -5,7 +5,6 @@ use std::sync::Once;
 
 use iron_nes::error::*;
 use iron_nes::nes::cpu;
-use iron_nes::nes::memory;
 use iron_nes::nes::IronNes;
 
 mod blargg;
@@ -39,7 +38,7 @@ fn get_filename(parts: &[&str]) -> String {
 fn run_test(
     rom: String,
     golden: impl Iterator<Item = (usize, cpu::Registers)>,
-    load: Option<memory::Addr>,
+    load: Option<usize>,
     can_count_cycles: bool,
 ) -> IronNesResult<IronNes> {
     setup();

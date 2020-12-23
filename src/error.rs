@@ -1,3 +1,5 @@
+//! IronNES uses a single custom result and error codes
+
 use thiserror::Error;
 
 pub type IronNesResult<T> = std::result::Result<T, IronNesError>;

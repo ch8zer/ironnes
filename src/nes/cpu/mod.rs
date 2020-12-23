@@ -1,6 +1,13 @@
+/*!
+ * NMOS 6502 without DCB support.
+ * Supports all NES official and unofficial opcodes.
+ *
+ * It is not cycle accurate, instead counts the # of cycles needed for execution.
+ */
+
 mod addressing;
-pub mod instruction;
-pub mod register;
+mod instruction;
+mod register;
 
 use crate::error::*;
 use crate::nes::bus::Bus;
@@ -11,7 +18,6 @@ use log::*;
 pub use register::{Flags, Registers};
 
 #[derive(PartialEq)]
-#[allow(dead_code)]
 enum InterruptType {
     BRK,
     NMI,

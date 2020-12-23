@@ -1,8 +1,11 @@
+/*!
+ * NES Emulator Core
+*/
 mod bus;
 pub mod cartridge;
 pub mod cpu;
-pub mod memory;
-pub mod ppu;
+mod memory;
+mod ppu;
 use log::*;
 
 use crate::error::*;
@@ -22,9 +25,8 @@ impl IronNes {
 
         let cpu = cpu::Cpu::new();
 
-        let ppu = ppu::Ppu::new(&cartridge);
-        let ppu_nametables = ppu.alloc_nametables();
-        let ppu_reg = Box::new(ppu::registers::Registers::new());
+        let ppu = ppu::Ppu::new();
+        let (ppu_reg, ppu_nametables) = ppu::Ppu::alloc_mem_devices(&cartridge);
 
         let bus = bus::Bus::new(ppu_nametables, ppu_reg, prog_rom, ppu_rom);
 
@@ -53,15 +55,15 @@ impl IronNes {
         self.cpu.cycle
     }
 
-    pub fn peek(&mut self, addr: memory::Addr) -> IronNesResult<u8> {
-        self.bus.cpu_load(addr as usize)
+    pub fn peek(&mut self, addr: usize) -> IronNesResult<u8> {
+        self.bus.cpu_load(addr)
     }
 
     /**
      * CPU has a jsr method for test code, to jump to a know address
      */
-    pub fn jsr(&mut self, addr: memory::Addr) -> IronNesResult<()> {
-        self.cpu.jsr(addr)?;
+    pub fn jsr(&mut self, addr: usize) -> IronNesResult<()> {
+        self.cpu.jsr(addr as memory::Addr)?;
         Ok(())
     }
 

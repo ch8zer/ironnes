@@ -21,6 +21,9 @@ pub enum Flags {
     N = 7,
 }
 
+/**
+ * NES cpu registers
+ */
 pub struct Registers {
     // Should be a 16 bit registers
     pub pc: memory::Addr,

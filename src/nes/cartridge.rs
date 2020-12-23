@@ -1,3 +1,29 @@
+//!
+//!  Cartridge Layout (.nes file - ines 1.0 file)
+//!
+//! | Byte   | Contents |
+//! | -------|-------------------------------------------------------------------|
+//! | 0-3    | String "NES^Z" used to recognize .NES files.|
+//! | 4      | Number of 16kB ROM banks.|
+//! | 5      | Number of 8kB VROM banks.|
+//! | 6      | bit 0     1 for vertical mirroring, 0 for horizontal mirroring.|
+//! |        | bit 1     1 for battery-backed RAM at $6000-$7FFF.|
+//! |        | bit 2     1 for a 512-byte trainer at $7000-$71FF.|
+//! |        | bit 3     1 for a four-screen VRAM layout.|
+//! |        | bit 4-7   Four lower bits of ROM Mapper Type.|
+//! | 7      | bit 0     1 for VS-System cartridges.|
+//! |        | bit 1-3   Reserved, must be zeroes!|
+//! |        | bit 4-7   Four higher bits of ROM Mapper Type.|
+//! | 8      | Number of 8kB RAM banks. For compatibility with the previous|
+//! |        | versions of the .NES format, assume 1x8kB RAM page when this|
+//! |        | byte is zero.|
+//! | 9      | bit 0     1 for PAL cartridges, otherwise assume NTSC.|
+//! |        | bit 1-7   Reserved, must be zeroes!|
+//! | 10-15  | Reserved, must be zeroes!|
+//! | 16-... | DATA - ROM banks, in ascending order. If a trainer is present, its|
+//! |        | 512 bytes precede the ROM bank contents.|
+//! | ...-EOF| PROG - VROM banks, in ascending order.|
+
 use crate::error::*;
 
 use log::*;
@@ -18,31 +44,6 @@ pub struct Cartridge {
     pub region: CartridgeRegion,
 }
 
-/**
- * Cartridge Layout (.nes file)
- * Byte   | Contents
- * -------|-------------------------------------------------------------------
- * 0-3    | String "NES^Z" used to recognize .NES files.
- * 4      | Number of 16kB ROM banks.
- * 5      | Number of 8kB VROM banks.
- * 6      | bit 0     1 for vertical mirroring, 0 for horizontal mirroring.
- *        | bit 1     1 for battery-backed RAM at $6000-$7FFF.
- *        | bit 2     1 for a 512-byte trainer at $7000-$71FF.
- *        | TODO bit 3     1 for a four-screen VRAM layout.
- *        | bit 4-7   Four lower bits of ROM Mapper Type.
- * 7      | TODO bit 0     1 for VS-System cartridges.
- *        | bit 1-3   Reserved, must be zeroes!
- *        | bit 4-7   Four higher bits of ROM Mapper Type.
- * 8      | Number of 8kB RAM banks. For compatibility with the previous
- *        | versions of the .NES format, assume 1x8kB RAM page when this
- *        | byte is zero.
- * 9      | bit 0     1 for PAL cartridges, otherwise assume NTSC.
- *        | bit 1-7   Reserved, must be zeroes!
- * 10-15  | Reserved, must be zeroes!
- * 16-... | DATA - ROM banks, in ascending order. If a trainer is present, its
- *        | 512 bytes precede the ROM bank contents.
- * ...-EOF| PROG - VROM banks, in ascending order.
- */
 impl Cartridge {
     pub const CARTRIDGE_HEADER: [u8; 4] = [0x4e, 0x45, 0x53, 0x1a];
     pub const NES_FILE_HEADER_SIZE: usize = 16;
@@ -52,7 +53,7 @@ impl Cartridge {
     const CHIP_SIZE_RAM: usize = 0x2000;
 
     /**
-     * Parses the cartridge file and returns a tuple of (Cartridge, prog_bytes, ppu_bytes)
+     * Parses the cartridge file and returns a tuple of Ok((Cartridge, prog_bytes, ppu_bytes)
      */
     pub fn load(cartridge_file: &str) -> IronNesResult<(Self, Vec<u8>, Vec<u8>)> {
         if !Path::new(cartridge_file).exists() {

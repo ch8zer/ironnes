@@ -1,3 +1,8 @@
+//! BitVec Implementation
+
+/**
+ * Standard Bitset. Allows individual bits to be toggled on/off.
+ */
 #[derive(Default)]
 pub struct BitSet(u8);
 

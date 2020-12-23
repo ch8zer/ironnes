@@ -1,4 +1,4 @@
-pub mod registers;
+mod registers;
 
 use crate::nes::bus::memory_mapped::*;
 use crate::nes::cartridge::Cartridge;
@@ -28,14 +28,20 @@ use crate::nes::cartridge::Cartridge;
 pub struct Ppu;
 
 impl Ppu {
-    pub fn new(_cartridge: &Cartridge) -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 
-    pub fn alloc_nametables(&self) -> MemMappedDevice {
+    /**
+     * # Returns
+     * * allocated memory for devices (registers, nametables)
+     */
+    pub fn alloc_mem_devices(_cartridge: &Cartridge) -> (MemMappedDevice, MemMappedDevice) {
         // TODO this is based on mirroring, just allocate a
         // full and empty array for now
-        Box::new(MemoryMappedRam::new(0x400 * 4))
+        let nametables = Box::new(MemoryMappedRam::new(0x400 * 4));
+        let reg = Box::new(registers::Registers::new());
+        (reg, nametables)
     }
 
     //pub fn render(&self) -> Frame {

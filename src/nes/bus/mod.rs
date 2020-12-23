@@ -7,6 +7,10 @@ use log::*;
 
 /**
  * The bus holds all memory mapped devices for all computational units.
+ *
+ * FIXME the mem values in this module are hardcoded to cut down on the # of lines
+ * of code I need to write. Is this the right thing to do? Probably not, but
+ * it keeps the file short. In addition, the magic #s are often used only once.
  */
 #[allow(dead_code)] // TODO remove
 pub struct Bus {
@@ -72,10 +76,6 @@ impl Bus {
      * Given an address we are interested in, map that to a tuple
      * of (addr2, MemMappedDevice) where addr2 is the translated address
      * that your MemMappedDevice understands
-     *
-     * FIXME the values are hardcoded here ONCE to cut down on the # of lines
-     * of code I need to write. Is this the right thing to do? Probably not, but
-     * it keeps the file short.
      */
     fn cpu_map<'a>(&'a mut self, addr: usize) -> IronNesResult<(usize, &'a mut MemMappedDevice)> {
         match addr {
@@ -105,10 +105,6 @@ impl Bus {
      * Given an address we are interested in, map that to a tuple
      * of (addr2, MemMappedDevice) where addr2 is the translated address
      * that your MemMappedDevice understands
-     *
-     * FIXME the values are hardcoded here ONCE to cut down on the # of lines
-     * of code I need to write. Is this the right thing to do? Probably not, but
-     * it keeps the file short.
      */
     fn ppu_map<'a>(&'a mut self, addr: usize) -> IronNesResult<(usize, &'a mut MemMappedDevice)> {
         match addr {

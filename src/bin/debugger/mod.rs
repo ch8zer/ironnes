@@ -1,5 +1,4 @@
 use iron_nes::error::*;
-use iron_nes::nes::memory::Addr;
 use iron_nes::nes::IronNes;
 
 use shrust::{Shell, ShellIO};
@@ -9,7 +8,7 @@ pub fn run_debugger<'a>(nes: &'a mut IronNes, debugger: &'a mut IronNesDebugger)
     let mut shell = Shell::new((debugger, nes));
 
     shell.new_command("b", "add breakpoint", 1, |io, (d, _), s| {
-        let addr = Addr::from_str_radix(s[0], 16).unwrap();
+        let addr = usize::from_str_radix(s[0], 16).unwrap();
         d.add_breakpoint(addr);
         writeln!(io, "breakpoint set {:04x}", addr)?;
         Ok(())
@@ -53,9 +52,9 @@ pub fn run_debugger<'a>(nes: &'a mut IronNes, debugger: &'a mut IronNesDebugger)
     });
 
     shell.new_command("p", "print addr -> range", 2, |io, (_, nes), s| {
-        let addr = Addr::from_str_radix(s[0], 16).unwrap();
-        let range = Addr::from_str_radix(s[1], 10).unwrap();
-        const TERM_WIDTH: Addr = 8;
+        let addr = usize::from_str_radix(s[0], 16).unwrap();
+        let range = usize::from_str_radix(s[1], 10).unwrap();
+        const TERM_WIDTH: usize = 8;
 
         for i in 0..range {
             if i % TERM_WIDTH == 0 {
@@ -79,12 +78,12 @@ pub fn run_debugger<'a>(nes: &'a mut IronNes, debugger: &'a mut IronNesDebugger)
 
 enum DebuggerState {
     Stopped,
-    Breakpoint(Addr),
+    Breakpoint(usize),
     WatchCycle(usize),
 }
 
 pub struct IronNesDebugger {
-    breakpoints: Vec<Addr>,
+    breakpoints: Vec<usize>,
     watch_cycles: Vec<usize>,
 }
 
@@ -99,7 +98,7 @@ impl IronNesDebugger {
     /// Returns if a breakpoint was hit, and what PC was when it happened
     fn step<'a>(&mut self, nes: &'a mut IronNes) -> IronNesResult<DebuggerState> {
         nes.step()?;
-        let pc = nes.get_cpu_registers().pc;
+        let pc = nes.get_cpu_registers().pc as usize;
         if self.is_breakpoint_hit(pc) {
             return Ok(DebuggerState::Breakpoint(pc));
         }
@@ -112,7 +111,7 @@ impl IronNesDebugger {
         Ok(DebuggerState::Stopped)
     }
 
-    fn is_breakpoint_hit(&self, addr: Addr) -> bool {
+    fn is_breakpoint_hit(&self, addr: usize) -> bool {
         self.breakpoints.iter().any(|x| *x == addr)
     }
 
@@ -120,7 +119,7 @@ impl IronNesDebugger {
         self.watch_cycles.iter().any(|x| *x == cycle)
     }
 
-    fn add_breakpoint(&mut self, addr: Addr) {
+    fn add_breakpoint(&mut self, addr: usize) {
         self.breakpoints.push(addr);
     }
 
