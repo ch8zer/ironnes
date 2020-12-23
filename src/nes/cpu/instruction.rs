@@ -1,4 +1,5 @@
 use super::addressing::AddressingMode;
+use crate::nes::bus::Bus;
 use crate::nes::memory::*;
 
 // Instruction Table
@@ -49,9 +50,9 @@ impl Instruction {
         }
     }
 
-    pub fn print(&self, pc: Addr, mem: &Memory) -> String {
-        let p1 = mem.load(pc + 1).unwrap();
-        let p2 = mem.load(pc + 2).unwrap();
+    pub fn print(&self, pc: Addr, bus: &mut Bus) -> String {
+        let p1 = bus.cpu_load((pc as usize) + 1).unwrap();
+        let p2 = bus.cpu_load((pc as usize) + 2).unwrap();
         match self.addr_mode {
             AddressingMode::Accumulator => format!("{:02x}       {} A", self.opcode, self.mnemonic),
             AddressingMode::Immediate => format!(

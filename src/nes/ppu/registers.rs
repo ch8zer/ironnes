@@ -161,6 +161,7 @@ impl MemoryMapped for Registers {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
 
@@ -189,7 +190,7 @@ mod tests {
     #[test]
     fn test_bus_ppu_oamdata() -> IronNesResult<()> {
         let mut r = Registers::new();
-        r.store(Registers::OAMADDR_ADDR, 0xbe);
+        r.store(Registers::OAMADDR_ADDR, 0xbe)?;
         assert_eq!(0xbe, r.load(Registers::OAMADDR_ADDR)?);
         r.store(Registers::OAMDATA_ADDR, 0);
         assert_eq!(
@@ -203,12 +204,12 @@ mod tests {
     #[test]
     fn test_bus_ppuscroll() -> IronNesResult<()> {
         let mut r = Registers::new();
-        r.store(Registers::PPUSCROLL_ADDR, 0xb);
-        r.store(Registers::PPUSCROLL_ADDR, 0x2);
+        r.store(Registers::PPUSCROLL_ADDR, 0xb)?;
+        r.store(Registers::PPUSCROLL_ADDR, 0x2)?;
         let scroll = r.get_ppuscroll();
         assert_eq!(0xb, scroll.x);
         assert_eq!(0x2, scroll.y);
-        r.store(Registers::PPUSCROLL_ADDR, 0x7);
+        r.store(Registers::PPUSCROLL_ADDR, 0x7)?;
         let scroll = r.get_ppuscroll();
         assert_eq!(0x2, scroll.x);
         assert_eq!(0x7, scroll.y);
@@ -218,10 +219,10 @@ mod tests {
     #[test]
     fn test_bus_ppuaddr() -> IronNesResult<()> {
         let mut r = Registers::new();
-        r.store(Registers::PPUADDR_ADDR, 0xbe);
-        r.store(Registers::PPUADDR_ADDR, 0x2f);
+        r.store(Registers::PPUADDR_ADDR, 0xbe)?;
+        r.store(Registers::PPUADDR_ADDR, 0x2f)?;
         assert_eq!(0xbe2f, r.ppuaddr);
-        r.store(Registers::PPUADDR_ADDR, 0x31);
+        r.store(Registers::PPUADDR_ADDR, 0x31)?;
         assert_eq!(0x2f31, r.ppuaddr);
         Ok(())
     }

@@ -11,7 +11,7 @@ use log::*;
 #[allow(dead_code)] // TODO remove
 pub struct Bus {
     cpu_zeropage: MemMappedDevice,
-    cpu_oam_dma_reg: MemMappedDevice,
+    cpu_reg: MemMappedDevice,
 
     ppu_reg: MemMappedDevice,
     ppu_nametables: MemMappedDevice,
@@ -30,6 +30,7 @@ pub struct Bus {
 #[allow(dead_code)] // TODO remove
 impl Bus {
     const CPU_ZEROPAGE_SIZE: usize = 0x800;
+    const CPU_REG_SIZE: usize = 0x18;
     const OAM_SIZE: usize = 256;
     const PPU_PALETTE_RAM_SIZE: usize = 0x20;
     const NUM_JOYSTICK: usize = 2;
@@ -54,7 +55,7 @@ impl Bus {
 
         Self {
             cpu_zeropage: Box::new(MemoryMappedRam::new(Self::CPU_ZEROPAGE_SIZE)),
-            cpu_oam_dma_reg: Box::new(MemoryMappedRam::new(1)),
+            cpu_reg: Box::new(MemoryMappedRam::new(Self::CPU_REG_SIZE)),
             ppu_reg,
             ppu_nametables,
             ppu_palette_ram: Box::new(MemoryMappedRam::new(Self::PPU_PALETTE_RAM_SIZE)),
@@ -80,8 +81,7 @@ impl Bus {
         match addr {
             0x0000..=0x1fff => Ok((addr % Self::CPU_ZEROPAGE_SIZE, &mut self.cpu_zeropage)),
             0x2000..=0x3fff => Ok((addr % 8, &mut self.ppu_reg)),
-            0x4014 => Ok((0, &mut self.cpu_oam_dma_reg)),
-            0x4016..=0x4017 => Ok((addr - 0x4016, &mut self.joystick)),
+            0x4000..=0x4017 => Ok((addr - 0x4000, &mut self.cpu_reg)),
             0x8000..=0xffff if self.cartridge_rom_offset == 0x8000 => {
                 Ok((addr - self.cartridge_rom_offset, &mut self.cartridge_rom))
             }
@@ -122,19 +122,19 @@ impl Bus {
         }
     }
 
-    fn cpu_load(&mut self, addr: usize) -> IronNesResult<u8> {
+    pub fn cpu_load(&mut self, addr: usize) -> IronNesResult<u8> {
         let (a, mem) = self.cpu_map(addr)?;
         trace!("bus cpu @ {:04x} => mem[{:04x}]", addr, a);
         mem.load(a)
     }
 
-    fn cpu_store(&mut self, addr: usize, v: u8) -> IronNesResult<()> {
+    pub fn cpu_store(&mut self, addr: usize, v: u8) -> IronNesResult<()> {
         let (a, mem) = self.cpu_map(addr)?;
         trace!("bus cpu @ {:04x} => mem[{:04x}]", addr, a);
         mem.store(a, v)
     }
 
-    fn ppu_get_reg<'a>(&'a mut self) -> &'a mut MemMappedDevice {
+    pub fn ppu_get_reg<'a>(&'a mut self) -> &'a mut MemMappedDevice {
         &mut self.ppu_reg
     }
 
@@ -144,10 +144,10 @@ impl Bus {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    fn make_bus() -> Bus {
+    pub fn make_bus() -> Bus {
         let ppu_nametables = Box::new(MemoryMappedRam::new(0));
         let ppu_reg = Box::new(MemoryMappedRam::new(8));
         let cartridge_rom = vec![0; Bus::PAGE_SIZE];
@@ -196,12 +196,12 @@ mod tests {
 
         // PPU shared with cpu
         {
-            let mut reg = bus.ppu_get_reg();
+            let reg = bus.ppu_get_reg();
             let x = reg.load(3).unwrap();
             assert_eq!(1, x);
             let x = reg.load(4).unwrap();
             assert_eq!(2, x);
-            let x = reg.store(3, 3).unwrap();
+            reg.store(3, 3).unwrap();
         }
 
         let x = bus.cpu_load(0x2003 + 0x1008).unwrap();

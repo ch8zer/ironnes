@@ -45,7 +45,7 @@ fn run_test(
     setup();
 
     let mut nes = IronNes::new(&rom);
-    nes.reset();
+    nes.reset()?;
 
     if let Some(x) = load {
         nes.jsr(x)?;
@@ -122,7 +122,7 @@ fn cpu_nestest() -> IronNesResult<()> {
  * http://forums.nesdev.com/viewtopic.php?t=7048
  */
 fn run_blargg_test(rom_file: String, golden_file: String) -> IronNesResult<()> {
-    let nes = run_test(
+    let mut nes = run_test(
         rom_file,
         blargg::instr_test_v5::get_golden(&golden_file),
         None,

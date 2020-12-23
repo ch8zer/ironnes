@@ -10,7 +10,7 @@ use crate::error::*;
 pub struct IronNes {
     bus: bus::Bus,
     cpu: cpu::Cpu,
-    pub mem: memory::Memory,
+    ppu: ppu::Ppu,
 }
 
 impl IronNes {
@@ -20,22 +20,21 @@ impl IronNes {
         info!("Loading cartridge {}", cartridge);
         let (cartridge, prog_rom, ppu_rom) = cartridge::Cartridge::load(cartridge).unwrap();
 
-        let mut mem = memory::Memory::new();
-        mem.load_rom(&prog_rom).unwrap();
+        let cpu = cpu::Cpu::new();
 
         let ppu = ppu::Ppu::new(&cartridge);
         let ppu_nametables = ppu.alloc_nametables();
         let ppu_reg = Box::new(ppu::registers::Registers::new());
 
-        Self {
-            bus: bus::Bus::new(ppu_nametables, ppu_reg, prog_rom, ppu_rom),
-            cpu: cpu::Cpu::new(),
-            mem,
-        }
+        let bus = bus::Bus::new(ppu_nametables, ppu_reg, prog_rom, ppu_rom);
+
+        // TODO set mapper here
+
+        Self { bus, cpu, ppu }
     }
 
     pub fn reset(&mut self) -> IronNesResult<()> {
-        self.cpu.reset(&self.mem)
+        self.cpu.reset(&mut self.bus)
     }
 
     pub fn run(&mut self) -> IronNesResult<()> {
@@ -46,7 +45,7 @@ impl IronNes {
 
     pub fn step(&mut self) -> IronNesResult<()> {
         self.log_state()?;
-        self.cpu.step(&mut self.mem)?;
+        self.cpu.step(&mut self.bus)?;
         Ok(())
     }
 
@@ -54,8 +53,8 @@ impl IronNes {
         self.cpu.cycle
     }
 
-    pub fn peek(&self, addr: memory::Addr) -> IronNesResult<u8> {
-        self.mem.load(addr)
+    pub fn peek(&mut self, addr: memory::Addr) -> IronNesResult<u8> {
+        self.bus.cpu_load(addr as usize)
     }
 
     /**
@@ -66,8 +65,8 @@ impl IronNes {
         Ok(())
     }
 
-    fn log_state(&self) -> IronNesResult<()> {
-        info!("{}", self.cpu.log_state(&self.mem)?,);
+    fn log_state(&mut self) -> IronNesResult<()> {
+        info!("{}", self.cpu.log_state(&mut self.bus)?,);
         Ok(())
     }
 

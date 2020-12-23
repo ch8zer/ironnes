@@ -44,7 +44,7 @@ fn lookup_instr(opcode: u8) -> Instruction {
 
         // CPU SWITCH
         let line = format!(
-            "0x{:02x} => {}_execute(self, &instr, mem),\n",
+            "0x{:02x} => {}_execute(self, &instr, bus),\n",
             opcode,
             name.to_lowercase()
         );

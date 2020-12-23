@@ -3,6 +3,7 @@ pub mod instruction;
 pub mod register;
 
 use crate::error::*;
+use crate::nes::bus::Bus;
 use crate::nes::memory::*;
 use addressing::AddressingMode;
 use instruction::Instruction;
@@ -38,11 +39,11 @@ impl Cpu {
         &self.registers
     }
 
-    pub fn reset(&mut self, mem: &Memory) -> IronNesResult<()> {
+    pub fn reset(&mut self, bus: &mut Bus) -> IronNesResult<()> {
         self.cycle = 0;
 
         self.registers = register::Registers::new();
-        self.registers.pc = mem.load16(Self::ADDR_RESET)?;
+        self.registers.pc = cpu_load16(bus, Self::ADDR_RESET)?;
 
         warn!("IronNES PC reset to RESET VEC {:04x}", self.registers.pc);
         Ok(())
@@ -52,8 +53,8 @@ impl Cpu {
      * Performs a single step of CPU, executing a whole instruction (for now).
      * Instruction implementation/reference from: http://nesdev.com/6502.txt
      */
-    pub fn step(&mut self, mem: &mut Memory) -> IronNesResult<Instruction> {
-        let opcode = mem.load(self.registers.pc)?;
+    pub fn step(&mut self, bus: &mut Bus) -> IronNesResult<Instruction> {
+        let opcode = cpu_load(bus, self.registers.pc)?;
 
         let instr = Instruction::lookup(opcode);
         self.cycle += instr.cycles;
@@ -80,7 +81,7 @@ impl Cpu {
     }
 
     // Interrupts can happen on NON-brk instructions...
-    fn interrupt(&mut self, mem: &mut Memory, t: InterruptType) -> IronNesResult<()> {
+    fn interrupt(&mut self, bus: &mut Bus, t: InterruptType) -> IronNesResult<()> {
         if self.registers.get_flag(Flags::I) && t == InterruptType::IRQ {
             warn!("IRQ not allowed when I==1.");
             return Ok(());
@@ -91,10 +92,10 @@ impl Cpu {
             _ => self.registers.pc,
         };
 
-        mem.stack_push_addr(&mut self.registers.sp, pc)?;
+        stack_push_addr(bus, &mut self.registers.sp, pc)?;
         self.registers.set_flag(Flags::B, t == InterruptType::BRK);
         let status = self.registers.get_status();
-        mem.stack_push(&mut self.registers.sp, status)?;
+        stack_push(bus, &mut self.registers.sp, status)?;
         self.registers.set_flag(Flags::I, true);
 
         let addr: Addr = match t {
@@ -103,17 +104,17 @@ impl Cpu {
             InterruptType::NMI => Self::ADDR_NMI,
         };
 
-        Ok(self.registers.pc = mem.load16(addr)?)
+        Ok(self.registers.pc = cpu_load16(bus, addr)?)
     }
 
-    pub fn log_state(&self, mem: &Memory) -> IronNesResult<String> {
-        let opcode = mem.load(self.registers.pc)?;
+    pub fn log_state(&self, bus: &mut Bus) -> IronNesResult<String> {
+        let opcode = cpu_load(bus, self.registers.pc)?;
         let instr = Instruction::lookup(opcode);
 
         Ok(format!(
             "{:04x} {:28} {} CYC {}",
             self.registers.pc,
-            instr.print(self.registers.pc - (instr.bytes as u16), &mem),
+            instr.print(self.registers.pc - (instr.bytes as u16), bus),
             self.registers,
             self.cycle
         ))
@@ -147,7 +148,7 @@ fn pay_for_page_cross(cpu: &mut Cpu, instr: &Instruction, addr: Addr) -> IronNes
 fn fetch_operand(
     cpu: &mut Cpu,
     instr: &Instruction,
-    mem: &mut Memory,
+    bus: &mut Bus,
 
     addr: Addr,
 ) -> IronNesResult<u8> {
@@ -161,94 +162,94 @@ fn fetch_operand(
         | AddressingMode::ZeroPageY
         | AddressingMode::Indirect
         | AddressingMode::IndirectX
-        | AddressingMode::IndirectY => mem.load(addr),
+        | AddressingMode::IndirectY => cpu_load(bus, addr),
         _ => Ok(addr as u8),
     }
 }
 
 #[allow(unused_variables)]
-fn nop_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn nop_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     if instr.addr_mode == AddressingMode::AbsoluteX {
-        let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
+        let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
         pay_for_page_cross(cpu, instr, addr)?;
     }
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn brk_execute(cpu: &mut Cpu, _instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    cpu.interrupt(mem, InterruptType::BRK)
+fn brk_execute(cpu: &mut Cpu, _instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    cpu.interrupt(bus, InterruptType::BRK)
 }
 
 #[allow(unused_variables)]
-fn cmp_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    do_cmp(cpu, &instr, mem, cpu.registers.a)
+fn cmp_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    do_cmp(cpu, &instr, bus, cpu.registers.a)
 }
 
 #[allow(unused_variables)]
-fn cpx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    do_cmp(cpu, &instr, mem, cpu.registers.x)
+fn cpx_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    do_cmp(cpu, &instr, bus, cpu.registers.x)
 }
 
 #[allow(unused_variables)]
-fn cpy_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    do_cmp(cpu, &instr, mem, cpu.registers.y)
+fn cpy_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    do_cmp(cpu, &instr, bus, cpu.registers.y)
 }
 
 #[allow(unused_variables)]
-fn bcc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::C, false)
+fn bcc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::C, false)
 }
 
 #[allow(unused_variables)]
-fn bcs_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::C, true)
+fn bcs_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::C, true)
 }
 
 #[allow(unused_variables)]
-fn beq_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::Z, true)
+fn beq_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::Z, true)
 }
 
 #[allow(unused_variables)]
-fn bmi_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::N, true)
+fn bmi_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::N, true)
 }
 
 #[allow(unused_variables)]
-fn bne_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::Z, false)
+fn bne_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::Z, false)
 }
 
 #[allow(unused_variables)]
-fn bpl_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::N, false)
+fn bpl_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::N, false)
 }
 
 #[allow(unused_variables)]
-fn bvc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::V, false)
+fn bvc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::V, false)
 }
 
 #[allow(unused_variables)]
-fn bvs_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    br_execute(cpu, &instr, mem, Flags::V, true)
+fn bvs_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    br_execute(cpu, &instr, bus, Flags::V, true)
 }
 
 #[allow(unused_variables)]
-fn rti_execute(cpu: &mut Cpu, _instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn rti_execute(cpu: &mut Cpu, _instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let orig = cpu.registers.get_status() & 0b00110000;
-    let v = mem.stack_pop(&mut cpu.registers.sp)? & 0b11001111;
+    let v = stack_pop(bus, &mut cpu.registers.sp)? & 0b11001111;
     let v = v | orig;
     cpu.registers.set_status(v);
 
-    Ok(cpu.registers.pc = mem.stack_pop_addr(&mut cpu.registers.sp)?)
+    Ok(cpu.registers.pc = stack_pop_addr(bus, &mut cpu.registers.sp)?)
 }
 
 #[allow(unused_variables)]
-fn adc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn adc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
     let a = cpu.registers.a;
     let c = cpu.registers.get_flag(Flags::C) as u16;
 
@@ -277,9 +278,9 @@ fn adc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn sbc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn sbc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
 
     let a = cpu.registers.a;
     let c = !cpu.registers.get_flag(Flags::C) as i16;
@@ -317,57 +318,57 @@ fn increment_helper(src: u8, amt: i16, reg: &mut Registers) -> IronNesResult<u8>
 }
 
 #[allow(unused_variables)]
-fn inc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, addr)?;
+fn inc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, addr)?;
     let s = increment_helper(s, 1, &mut cpu.registers)?;
-    mem.store(addr, s)
+    cpu_store(bus, addr, s)
 }
 
 #[allow(unused_variables)]
-fn inx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn inx_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     Ok(cpu.registers.x = increment_helper(cpu.registers.x, 1, &mut cpu.registers)?)
 }
 
 #[allow(unused_variables)]
-fn iny_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn iny_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     Ok(cpu.registers.y = increment_helper(cpu.registers.y, 1, &mut cpu.registers)?)
 }
 
 #[allow(unused_variables)]
-fn dec_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, addr)?;
+fn dec_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, addr)?;
     let s = increment_helper(s, -1, &mut cpu.registers)?;
-    mem.store(addr, s)
+    cpu_store(bus, addr, s)
 }
 
 #[allow(unused_variables)]
-fn dex_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn dex_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     Ok(cpu.registers.x = increment_helper(cpu.registers.x, -1, &mut cpu.registers)?)
 }
 
 #[allow(unused_variables)]
-fn dey_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn dey_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     Ok(cpu.registers.y = increment_helper(cpu.registers.y, -1, &mut cpu.registers)?)
 }
 
 #[allow(unused_variables)]
-fn dcp_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    dec_execute(cpu, instr, mem)?;
-    do_cmp(cpu, instr, mem, cpu.registers.a)
+fn dcp_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    dec_execute(cpu, instr, bus)?;
+    do_cmp(cpu, instr, bus, cpu.registers.a)
 }
 
 #[allow(unused_variables)]
-fn isc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    inc_execute(cpu, instr, mem)?;
-    sbc_execute(cpu, instr, mem)
+fn isc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    inc_execute(cpu, instr, bus)?;
+    sbc_execute(cpu, instr, bus)
 }
 
 #[allow(unused_variables)]
-fn and_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn and_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
     cpu.registers.a &= s;
     cpu.registers.set_n(cpu.registers.a.into());
     cpu.registers.set_z(cpu.registers.a.into());
@@ -376,9 +377,9 @@ fn and_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn do_cmp(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory, src: u8) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn do_cmp(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus, src: u8) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
 
     let sum = (src as i16) - (s as i16);
     cpu.registers.set_flag(Flags::C, (sum as u16) < 0x100);
@@ -389,9 +390,9 @@ fn do_cmp(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory, src: u8) -> Iron
 }
 
 #[allow(unused_variables)]
-fn ora_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn ora_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
     let a = cpu.registers.a;
     cpu.registers.a = a | s;
     cpu.registers.set_n(cpu.registers.a.into());
@@ -401,9 +402,9 @@ fn ora_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn eor_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = fetch_operand(cpu, instr, mem, s)?;
+fn eor_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = fetch_operand(cpu, instr, bus, s)?;
     let a = cpu.registers.a;
     cpu.registers.a = a ^ s;
     cpu.registers.set_n(cpu.registers.a.into());
@@ -413,9 +414,9 @@ fn eor_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn bit_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let s = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let s = mem.load(s)?;
+fn bit_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let s = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let s = cpu_load(bus, s)?;
 
     cpu.registers.set_flag(Flags::Z, (cpu.registers.a & s) == 0);
     cpu.registers.set_flag(Flags::V, (s & 0x40) != 0);
@@ -429,12 +430,12 @@ fn br_execute(
     cpu: &mut Cpu,
     instr: &Instruction,
 
-    mem: &mut Memory,
+    bus: &mut Bus,
     flag: Flags,
     state: bool,
 ) -> IronNesResult<()> {
     if state == cpu.registers.get_flag(flag) {
-        let dest = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
+        let dest = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
         // Add one for taking the br
         cpu.cycle += 1;
         // Add another for crossing the page boundary
@@ -452,86 +453,86 @@ fn setp_execute(reg: &mut Registers, flag: Flags, state: bool) -> IronNesResult<
 }
 
 #[allow(unused_variables)]
-fn sec_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn sec_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::C, true)
 }
 
 #[allow(unused_variables)]
-fn sed_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn sed_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::D, true)
 }
 
 #[allow(unused_variables)]
-fn sei_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn sei_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::I, true)
 }
 
 #[allow(unused_variables)]
-fn clc_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn clc_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::C, false)
 }
 
 #[allow(unused_variables)]
-fn cld_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn cld_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::D, false)
 }
 
 #[allow(unused_variables)]
-fn cli_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn cli_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::I, false)
 }
 
 #[allow(unused_variables)]
-fn clv_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn clv_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     setp_execute(&mut cpu.registers, Flags::V, false)
 }
 
 #[allow(unused_variables)]
-fn jsr_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    mem.stack_push_addr(&mut cpu.registers.sp, cpu.registers.pc - 1)?;
-    Ok(cpu.registers.pc = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?)
+fn jsr_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    stack_push_addr(bus, &mut cpu.registers.sp, cpu.registers.pc - 1)?;
+    Ok(cpu.registers.pc = instr.addr_mode.load_operand(&mut cpu.registers, bus)?)
 }
 
 #[allow(unused_variables)]
-fn jmp_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    cpu.registers.pc = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
+fn jmp_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    cpu.registers.pc = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn ld_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<u8> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let v = fetch_operand(cpu, instr, mem, addr)?;
+fn ld_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<u8> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let v = fetch_operand(cpu, instr, bus, addr)?;
     cpu.registers.set_n(v.into());
     cpu.registers.set_z(v.into());
     Ok(v)
 }
 
 #[allow(unused_variables)]
-fn lax_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    cpu.registers.a = ld_execute(cpu, instr, mem)?;
+fn lax_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    cpu.registers.a = ld_execute(cpu, instr, bus)?;
     Ok(cpu.registers.x = cpu.registers.a)
 }
 
 #[allow(unused_variables)]
-fn lda_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    Ok(cpu.registers.a = ld_execute(cpu, instr, mem)?)
+fn lda_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    Ok(cpu.registers.a = ld_execute(cpu, instr, bus)?)
 }
 
 #[allow(unused_variables)]
-fn ldx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    Ok(cpu.registers.x = ld_execute(cpu, instr, mem)?)
+fn ldx_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    Ok(cpu.registers.x = ld_execute(cpu, instr, bus)?)
 }
 
 #[allow(unused_variables)]
-fn ldy_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    Ok(cpu.registers.y = ld_execute(cpu, instr, mem)?)
+fn ldy_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    Ok(cpu.registers.y = ld_execute(cpu, instr, bus)?)
 }
 
 #[allow(unused_variables)]
-fn asl_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let v = fetch_operand(cpu, instr, mem, addr)?;
+fn asl_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let v = fetch_operand(cpu, instr, bus, addr)?;
 
     cpu.registers.set_flag(Flags::C, (v & 0x80) != 0);
     let v = v << 1;
@@ -540,16 +541,16 @@ fn asl_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 
     match instr.addr_mode {
         AddressingMode::Accumulator => cpu.registers.a = v,
-        _ => mem.store(addr, v)?,
+        _ => cpu_store(bus, addr, v)?,
     };
 
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn lsr_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let v = fetch_operand(cpu, instr, mem, addr)?;
+fn lsr_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let v = fetch_operand(cpu, instr, bus, addr)?;
 
     cpu.registers.set_flag(Flags::C, (v & 1) != 0);
     let v = v >> 1;
@@ -558,16 +559,16 @@ fn lsr_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 
     match instr.addr_mode {
         AddressingMode::Accumulator => cpu.registers.a = v,
-        _ => mem.store(addr, v)?,
+        _ => cpu_store(bus, addr, v)?,
     };
 
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn rol_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let v = fetch_operand(cpu, instr, mem, addr)?;
+fn rol_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let v = fetch_operand(cpu, instr, bus, addr)?;
 
     let v = v as u16;
     let v = (v << 1) | (cpu.registers.get_flag(Flags::C) as u16);
@@ -579,16 +580,16 @@ fn rol_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 
     match instr.addr_mode {
         AddressingMode::Accumulator => cpu.registers.a = v,
-        _ => mem.store(addr, v)?,
+        _ => cpu_store(bus, addr, v)?,
     };
 
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn ror_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    let v = fetch_operand(cpu, instr, mem, addr)?;
+fn ror_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    let v = fetch_operand(cpu, instr, bus, addr)?;
 
     let c = match cpu.registers.get_flag(Flags::C) {
         true => 0x100,
@@ -605,71 +606,71 @@ fn ror_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 
     match instr.addr_mode {
         AddressingMode::Accumulator => cpu.registers.a = v,
-        _ => mem.store(addr, v)?,
+        _ => cpu_store(bus, addr, v)?,
     };
 
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn pha_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    mem.stack_push(&mut cpu.registers.sp, cpu.registers.a)
+fn pha_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    stack_push(bus, &mut cpu.registers.sp, cpu.registers.a)
 }
 
 #[allow(unused_variables)]
-fn php_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn php_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let v = cpu.registers.get_status() | 0b00110000;
-    mem.stack_push(&mut cpu.registers.sp, v)
+    stack_push(bus, &mut cpu.registers.sp, v)
 }
 
 #[allow(unused_variables)]
-fn pla_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    cpu.registers.a = mem.stack_pop(&mut cpu.registers.sp)?;
+fn pla_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    cpu.registers.a = stack_pop(bus, &mut cpu.registers.sp)?;
     cpu.registers.set_n(cpu.registers.a.into());
     cpu.registers.set_z(cpu.registers.a.into());
     Ok(())
 }
 
 #[allow(unused_variables)]
-fn plp_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn plp_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let orig = cpu.registers.get_status() & 0b00110000;
-    let v = mem.stack_pop(&mut cpu.registers.sp)? & 0b11001111;
+    let v = stack_pop(bus, &mut cpu.registers.sp)? & 0b11001111;
     let v = v | orig;
     Ok(cpu.registers.set_status(v))
 }
 
 #[allow(unused_variables)]
-fn rts_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    Ok(cpu.registers.pc = 1 + mem.stack_pop_addr(&mut cpu.registers.sp)?)
+fn rts_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    Ok(cpu.registers.pc = 1 + stack_pop_addr(bus, &mut cpu.registers.sp)?)
 }
 
 #[allow(unused_variables)]
-fn sax_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
+fn sax_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
     let v = cpu.registers.a & cpu.registers.x;
-    mem.store(addr, v)
+    cpu_store(bus, addr, v)
 }
 
 #[allow(unused_variables)]
-fn sta_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    mem.store(addr, cpu.registers.a)
+fn sta_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    cpu_store(bus, addr, cpu.registers.a)
 }
 
 #[allow(unused_variables)]
-fn stx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    mem.store(addr, cpu.registers.x)
+fn stx_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    cpu_store(bus, addr, cpu.registers.x)
 }
 
 #[allow(unused_variables)]
-fn sty_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    let addr = instr.addr_mode.load_operand(&mut cpu.registers, &mem)?;
-    mem.store(addr, cpu.registers.y)
+fn sty_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    let addr = instr.addr_mode.load_operand(&mut cpu.registers, bus)?;
+    cpu_store(bus, addr, cpu.registers.y)
 }
 
 #[allow(unused_variables)]
-fn tax_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn tax_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let src = cpu.registers.a;
     cpu.registers.set_n(src.into());
     cpu.registers.set_z(src.into());
@@ -677,7 +678,7 @@ fn tax_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn tay_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn tay_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let src = cpu.registers.a;
     cpu.registers.set_n(src.into());
     cpu.registers.set_z(src.into());
@@ -685,7 +686,7 @@ fn tay_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn tsx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn tsx_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let src = cpu.registers.sp as u8;
     cpu.registers.set_n(src.into());
     cpu.registers.set_z(src.into());
@@ -693,7 +694,7 @@ fn tsx_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn txa_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn txa_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let src = cpu.registers.x;
     cpu.registers.set_n(src.into());
     cpu.registers.set_z(src.into());
@@ -701,12 +702,12 @@ fn txa_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn txs_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn txs_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     Ok(cpu.registers.sp = cpu.registers.x.into())
 }
 
 #[allow(unused_variables)]
-fn tya_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
+fn tya_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
     let src = cpu.registers.y;
     cpu.registers.set_n(src.into());
     cpu.registers.set_z(src.into());
@@ -714,25 +715,25 @@ fn tya_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesR
 }
 
 #[allow(unused_variables)]
-fn slo_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    asl_execute(cpu, instr, mem)?;
-    ora_execute(cpu, instr, mem)
+fn slo_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    asl_execute(cpu, instr, bus)?;
+    ora_execute(cpu, instr, bus)
 }
 
 #[allow(unused_variables)]
-fn rla_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    rol_execute(cpu, instr, mem)?;
-    and_execute(cpu, instr, mem)
+fn rla_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    rol_execute(cpu, instr, bus)?;
+    and_execute(cpu, instr, bus)
 }
 
 #[allow(unused_variables)]
-fn rra_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    ror_execute(cpu, instr, mem)?;
-    adc_execute(cpu, instr, mem)
+fn rra_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    ror_execute(cpu, instr, bus)?;
+    adc_execute(cpu, instr, bus)
 }
 
 #[allow(unused_variables)]
-fn sre_execute(cpu: &mut Cpu, instr: &Instruction, mem: &mut Memory) -> IronNesResult<()> {
-    lsr_execute(cpu, instr, mem)?;
-    eor_execute(cpu, instr, mem)
+fn sre_execute(cpu: &mut Cpu, instr: &Instruction, bus: &mut Bus) -> IronNesResult<()> {
+    lsr_execute(cpu, instr, bus)?;
+    eor_execute(cpu, instr, bus)
 }
